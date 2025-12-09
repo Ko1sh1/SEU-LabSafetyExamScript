@@ -3,96 +3,141 @@ import fs from 'fs';
 
 // 实验室安全网站 cookie
 const cookies = [
-  {
-    url: 'http://safe.seu.edu.cn/',
-    name: '.ASPXAUTH',
-    value: 'your aspxauth value here'
-  },
-  {
-    url: 'http://safe.seu.edu.cn/',
-    name: 'ASP.NET_SessionId',
-    value: 'your net session id value here'
-  }
-]
+    {
+        url: 'http://safe.seu.edu.cn/',
+        name: '.ASPXAUTH',
+        value: 'your aspxauth value here'
+    },
+    {
+        url: 'http://safe.seu.edu.cn/',
+        name: 'ASP.NET_SessionId',
+        value: 'your net session id value here'
+    }
+];
 
 // 对获取到的题目字符串进行正则匹配，获取题目、答案信息
-function dealQ (input) {
-  const strMatch = input.match(/^(\d+)\.\s*\[(.*)\]\s*(.*)(?:参考答案:)\s*(.*)(?:解题分析：)(.*)/);
-  let [_, index, type, qo, answer, explain] = strMatch;
-  let question, options;
-  // 对题目和选项处理
-  if (type === '判断题') {
-    question = qo;
-    options = ['正确', '错误'];
-  } else if (type === '单项选择题' || type === '多项选择题') {
-    let qoMatch = qo.match(/(.*)A\.(.*)B\.(.*)C\.(.*)D\.(.*)E\.(.*)/);
-    if (!qoMatch) qoMatch = qo.match(/(.*)A\.(.*)B\.(.*)C\.(.*)D\.(.*)/);
-    if (!qoMatch) qoMatch = qo.match(/(.*)A\.(.*)B\.(.*)C\.(.*)/);
-    if (!qoMatch) qoMatch = qo.match(/(.*)A\.(.*)B\.(.*)/);
-    [_, question, ...options] = qoMatch;
-    options.filter(item => !!item);
-  }
-  // 对答案进行处理
-  answer = answer.split(',');
-  const obj = {
-    index,
-    type,
-    question,
-    options,
-    answer,
-    explain
-  };
-  return obj;
-}
+function dealQ(input) {
+    // 去掉换行符和多余空格
+    input = input.replace(/\n/g, '').replace(/\s+/g, ' ').trim();
 
-// 爬取每一页数据，自动跳转下一页
-const save = async (page, callback) => {
-  await page.waitForSelector('iframe#fnode4');
-  const frames = await page.frames();
-  const frame = frames.find(f => f.name() === 'fnode4');
-  // iframe 是否正确获取
-  console.log(!!frame);
-  const tools = await frame.$('#simplepagingtoolbar-1012-targetEl');
-  const nextBtn = await tools.$('a[data-qtip=下一页]');
-  const total = await tools.$eval('#tbtext-1018', el => Number.parseInt(el.textContent.match(/\d+/g) || '0'));
-  let qfs = [];
+    // 去掉 <font> 标签
+    input = input.replace(/<font.*?>(.*?)<\/font>/g, '$1');
 
-  // 获取题目
-  const parseQ = async () => {
-    await frame.waitForSelector('table#gridview-1011-table');
-    const qs = await frame.$$eval('table#gridview-1011-table tr span', el => el.map(item => {
-      return item.textContent;
-    }));
-    const tmp = qs.map(item => dealQ(item));
-    qfs = qfs.concat(tmp);
-    await nextBtn.click();
-  }
+    // 匹配题号、题型、题目和答案
+    const strMatch = input.match(/^(\d+)\.\s*\[(.*?)\]\s*(.*)参考答案:\s*([A-E正确错误,]+)(?:.*解题分析.*)?$/);
+    if (!strMatch) return null;
 
-  // 爬取数据，每隔 1s 自动跳转下一页
-  // 不设置间隔好像每页数据加载有问题，所以设置了一个等待时间（不会其他方法
-  let cnt = 0;
-  let timer = setInterval(async () => {
-    if (cnt >= total && timer) {
-      clearInterval(timer);
-      fs.writeFileSync('data.json', JSON.stringify(qfs), {flag: 'w'});
-      console.log('success');
-      await callback();
-      return;
+    let [_, index, type, qo, answer] = strMatch;
+    let question, options;
+
+    // 判断题
+    if (type.includes('判断题')) {
+        question = qo.trim();
+        options = ['正确', '错误'];
     }
-    await parseQ();
-    cnt ++;
-  }, 1000);
+    // 单选题或多选题
+    else if (type.includes('单选题') || type.includes('多选题')) {
+        // 匹配选项
+        const qoMatch = qo.match(/(.*)A\.(.*)B\.(.*)C\.(.*)D\.(.*)E\.(.*)/) ||
+            qo.match(/(.*)A\.(.*)B\.(.*)C\.(.*)D\.(.*)/) ||
+            qo.match(/(.*)A\.(.*)B\.(.*)C\.(.*)/) ||
+            qo.match(/(.*)A\.(.*)B\.(.*)/);
+
+        if (!qoMatch) {
+            question = qo.trim();
+            options = [];
+        } else {
+            [_, question, ...options] = qoMatch;
+            options = options.filter(item => !!item).map(item => item.trim());
+        }
+    }
+
+    // 处理答案，逗号分隔，并去掉空格
+    answer = answer.split(',').map(a => a.trim());
+
+    // 返回 index 为数字类型
+    return {
+        index: parseInt(index, 10),
+        type,
+        question,
+        options,
+        answer
+    };
 }
 
-(async () => {
-  const browser = await puppeteer.launch({
-    headless: false,
-    executablePath: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
-  });
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-  let page = await browser.newPage();
-  await page.setCookie(...cookies);
-  await page.goto('http://safe.seu.edu.cn/LabSafetyExamSchoolSSO/AdminIndexSchool.aspx#/LabSafetyExamSchoolSSO/SchoolQuestionStudy.aspx');
-  // await login();
-  await save(page, browser.close);
+// 主函数
+(async () => {
+    const browser = await puppeteer.launch({
+        headless: false,
+        executablePath: "D:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+    });
+
+    const page = await browser.newPage();
+    await page.setCookie(...cookies);
+
+    console.log('打开页面...');
+    await page.goto('https://safe.seu.edu.cn/LabSafetyExamSchoolSSO/Sindex.aspx#/LabSafetyExamSchoolSSO/SchoolLevel/LearnSchoolLevelQuestion.aspx', {waitUntil: 'networkidle0'});
+
+    console.log('等待目标 iframe...');
+    const frameHandle = await page.$('#mainPanel_bodyRegion_mainTabStrip_fnode4 iframe');
+    const frame = await frameHandle.contentFrame();
+
+    if (!frame) {
+        console.log('⚠️ iframe 获取失败');
+        await browser.close();
+        return;
+    }
+
+    // 等待表格渲染
+    await frame.waitForSelector('table.f-grid-table');
+    console.log('表格加载完成');
+
+    let allQs = [];
+    let lastIndex = null; // 上一页最后一道题的题号
+    while (true) {
+        // 抓取当前页数据
+        await sleep(1000);
+        const qs = await frame.$$eval('table.f-grid-table tr span', els =>
+            els.map(item => item.textContent)
+        );
+
+        const tmp = qs.map(item => dealQ(item)).filter(item => item !== null);
+        if (tmp.length === 0) {
+            console.log('当前页没有抓到题目，可能已到最后一页');
+            break;
+        }
+
+        // 判断题号是否变化
+        const currentFirstIndex = tmp[0].index;
+        if (currentFirstIndex === lastIndex) {
+            console.log('题号未变化，已到最后一页，抓取完成');
+            break;
+        }
+
+        allQs = allQs.concat(tmp);
+        console.log(`已抓取 ${allQs.length} 条题目`);
+
+        lastIndex = tmp[0].index; // 记录上一页的第一题题号
+
+        // 点击下一页
+        const nextBtn = await frame.$('a.nextpage');
+        if (!nextBtn) {
+            console.log('没有找到下一页按钮，抓取结束');
+            break;
+        }
+        await nextBtn.click();
+        console.log('点击下一页，等待加载...');
+
+        // 等待新页表格渲染完成
+        await frame.waitForSelector('table.f-grid-table tr', {timeout: 3000});
+    }
+
+    // 保存结果
+    fs.writeFileSync('data.json', JSON.stringify(allQs, null, 2));
+    console.log(`全部题目抓取完成，共 ${allQs.length} 道题目，已保存到 data.json`);
+    await browser.close();
 })();
