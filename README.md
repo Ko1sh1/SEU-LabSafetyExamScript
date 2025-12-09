@@ -1,5 +1,5 @@
 # SEU-LabSafetyExamScript (2025/12/9 Updated Version)
-⚠️ **本仓库为自用更新版本**，原作者 [OxalisCu/SEU-LabSafetyExamScript](https://github.com/OxalisCu/SEU-LabSafetyExamScript) 的功能在现有版本的 HTML 识别中存在问题，基于该作者的源码进行了部分改进。  
+⚠️ **本仓库为自用更新版本**，原作者 [OxalisCu/SEU-LabSafetyExamScript](https://github.com/OxalisCu/SEU-LabSafetyExamScript) 的功能在现有版本中对 HTML 的识别存在问题，基于该作者的源码进行了部分改进。  
 
 ---
 
